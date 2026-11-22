@@ -26,7 +26,7 @@ jobs:
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
-          gradle-version: "8.9"
+          gradle-version: "8.11.1"
 
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
@@ -34,15 +34,45 @@ jobs:
           packages: platform-tools
 
       - name: Install SDK packages
-        run: sdkmanager "platforms;android-35" "build-tools;35.0.0"
+        run: sdkmanager "platforms;android-36" "build-tools;36.0.0"
 
       - name: Extract Android project
         run: |
           test -f "SLIFX-AI-Editor-v0.5.0-TESTE.zip"
           unzip -o "SLIFX-AI-Editor-v0.5.0-TESTE.zip" -d .
-          test -f settings.gradle.kts
-          test -f app/build.gradle.kts
+          test -f settings.gradle.kts -o -f settings.gradle
+          test -f app/build.gradle.kts -o -f app/build.gradle
           test -f app/src/main/AndroidManifest.xml
+
+      - name: Align Android build versions
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          roots = [Path(".")]
+          files = []
+          for root in roots:
+              for p in root.rglob("*"):
+                  if p.is_file() and p.suffix in {".gradle", ".kts"} and not any(x in p.parts for x in (".gradle", "build")):
+                      files.append(p)
+
+          for p in files:
+              s = p.read_text(encoding="utf-8")
+              original = s
+              s = s.replace("8.7.3", "8.10.1")
+              s = re.sub(r"(compileSdk(?:Version)?\s*(?:=\s*)?)35\b", r"\g<1>36", s)
+              p.write_text(s, encoding="utf-8")
+              if s != original:
+                  print(f"Updated {p}")
+
+          # Fail with a clear message if the app still declares API 35.
+          app_files = [p for p in files if p.name.startswith("build.gradle")]
+          for p in app_files:
+              s = p.read_text(encoding="utf-8")
+              if re.search(r"compileSdk(?:Version)?\s*(?:=\s*)?35\b", s):
+                  raise SystemExit(f"compileSdk 35 still present in {p}")
+          PY
 
       - name: Build debug APK
         run: gradle --no-daemon assembleDebug
