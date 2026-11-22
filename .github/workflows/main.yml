@@ -36,6 +36,14 @@ jobs:
       - name: Install SDK packages
         run: sdkmanager "platforms;android-35" "build-tools;35.0.0"
 
+      - name: Extract Android project
+        run: |
+          test -f "SLIFX-AI-Editor-v0.5.0-TESTE.zip"
+          unzip -o "SLIFX-AI-Editor-v0.5.0-TESTE.zip" -d .
+          test -f settings.gradle.kts
+          test -f app/build.gradle.kts
+          test -f app/src/main/AndroidManifest.xml
+
       - name: Build debug APK
         run: gradle --no-daemon assembleDebug
 
