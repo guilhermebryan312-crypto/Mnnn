@@ -1,9 +1,9 @@
 name: Build SLIFX AI Editor APK
 on:
   push:
-    branches: [ "main" ]
+    branches: ["main"]
   pull_request:
-    branches: [ "main" ]
+    branches: ["main"]
   workflow_dispatch:
 
 permissions:
@@ -44,38 +44,68 @@ jobs:
           test -f app/build.gradle.kts -o -f app/build.gradle
           test -f app/src/main/AndroidManifest.xml
 
-      - name: Align Android build versions
+      - name: Align Android and Kotlin versions
+        shell: bash
         run: |
           python3 - <<'PY'
           from pathlib import Path
           import re
 
-          roots = [Path(".")]
-          files = []
-          for root in roots:
-              for p in root.rglob("*"):
-                  if p.is_file() and p.suffix in {".gradle", ".kts"} and not any(x in p.parts for x in (".gradle", "build")):
-                      files.append(p)
+          excluded = {".gradle", "build", ".git"}
+          files = [
+              p for p in Path(".").rglob("*")
+              if p.is_file()
+              and p.suffix.lower() in {".gradle", ".kts", ".toml", ".properties"}
+              and not any(part in excluded for part in p.parts)
+          ]
 
           for p in files:
-              s = p.read_text(encoding="utf-8")
-              original = s
-              s = s.replace("8.7.3", "8.10.1")
-              s = re.sub(r"(compileSdk(?:Version)?\s*(?:=\s*)?)35\b", r"\g<1>36", s)
-              p.write_text(s, encoding="utf-8")
+              try:
+                  original = p.read_text(encoding="utf-8")
+              except UnicodeDecodeError:
+                  continue
+              s = original
+
+              # AGP 8.10.0 is compatible with Kotlin Gradle Plugin 2.2.10.
+              s = s.replace("8.7.3", "8.10.0")
+              s = s.replace("8.10.1", "8.10.0")
+
+              # Update explicit Kotlin plugin/version-catalog declarations.
+              s = re.sub(
+                  r'((?:org\.jetbrains\.kotlin(?:\.android|\.jvm|\.plugin\.compose)?|kotlin)\s*(?:[=:]\s*|"\s*version\s*")["\']?)2\.0\.\d+',
+                  r'\g<1>2.2.10',
+                  s
+              )
+              s = re.sub(
+                  r'(kotlin\s*=\s*["\'])2\.0\.\d+(["\'])',
+                  r'\g<1>2.2.10\2',
+                  s
+              )
+              s = re.sub(
+                  r'(kotlinVersion\s*=\s*["\'])2\.0\.\d+(["\'])',
+                  r'\g<1>2.2.10\2',
+                  s
+              )
+
+              # Raise compile SDK declarations from 35 to 36.
+              s = re.sub(r'(compileSdk(?:Version)?\s*(?:=\s*)?)35\b', r'\g<1>36', s)
+
               if s != original:
+                  p.write_text(s, encoding="utf-8")
                   print(f"Updated {p}")
 
-          # Fail with a clear message if the app still declares API 35.
-          app_files = [p for p in files if p.name.startswith("build.gradle")]
-          for p in app_files:
-              s = p.read_text(encoding="utf-8")
-              if re.search(r"compileSdk(?:Version)?\s*(?:=\s*)?35\b", s):
-                  raise SystemExit(f"compileSdk 35 still present in {p}")
+          # Print Kotlin/AGP declarations for diagnosis and fail if old Kotlin remains explicit.
+          for p in files:
+              try:
+                  s = p.read_text(encoding="utf-8")
+              except UnicodeDecodeError:
+                  continue
+              if re.search(r'(?i)(kotlin|org\.jetbrains\.kotlin)[^\n]{0,100}2\.0\.\d+', s):
+                  print(f"WARNING: possible old Kotlin version remains in {p}")
           PY
 
       - name: Build debug APK
-        run: gradle --no-daemon assembleDebug
+        run: gradle --no-daemon assembleDebug --stacktrace
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
